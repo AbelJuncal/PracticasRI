@@ -22,13 +22,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.SimpleFileVisitor;
+import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Date;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -49,6 +48,7 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
+import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.util.IOUtils;
 
 /**
@@ -59,21 +59,35 @@ import org.apache.lucene.util.IOUtils;
  * it with no command-line arguments for usage information.
  */
 public class IndexFiles implements AutoCloseable {
+    @Override
+    public void close() throws Exception {
+
+    }
+
+    public static class IndexThread implements Runnable {
+
+        IndexWriter indexWriter;
+        Path dir;
+
+        IndexThread(Path dir, IndexWriter indexWriter) {
+            this.dir = dir;
+            this.indexWriter = indexWriter;
+        }
+
+        public void run(){
+            try {
+                indexDocs(indexWriter, dir);
+            } catch (IOException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+
+        }
+
+    }
     static final String KNN_DICT = "knn-dict";
 
     // Calculates embedding vectors for KnnVector search
-    private final DemoEmbeddings demoEmbeddings;
-    private final KnnVectorDict vectorDict;
-
-    private IndexFiles(KnnVectorDict vectorDict) throws IOException {
-        if (vectorDict != null) {
-            this.vectorDict = vectorDict;
-            demoEmbeddings = new DemoEmbeddings(vectorDict);
-        } else {
-            this.vectorDict = null;
-            demoEmbeddings = null;
-        }
-    }
 
     /** Index all text files under a directory. */
     public static void main(String[] args) throws Exception {
@@ -86,6 +100,8 @@ public class IndexFiles implements AutoCloseable {
         String docsPath = null;
         String vectorDictSource = null;
         boolean create = true;
+        final int numCores = Runtime.getRuntime().availableProcessors();
+        final ExecutorService executor = Executors.newFixedThreadPool(numCores);
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "-index":
@@ -144,34 +160,41 @@ public class IndexFiles implements AutoCloseable {
             //
             // iwc.setRAMBufferSizeMB(256.0);
 
-            KnnVectorDict vectorDictInstance = null;
-            long vectorDictSize = 0;
-            if (vectorDictSource != null) {
-                KnnVectorDict.build(Paths.get(vectorDictSource), dir, KNN_DICT);
-                vectorDictInstance = new KnnVectorDict(dir, KNN_DICT);
-                vectorDictSize = vectorDictInstance.ramBytesUsed();
+
+            IndexWriter writer = new IndexWriter(dir, iwc);
+            DirectoryStream<Path> directoryStream = Files.newDirectoryStream(docDir);
+
+            try{
+            for (final Path docs : directoryStream){
+                final Runnable worker = new IndexThread(docs, writer);
+                executor.execute(worker);
             }
 
-            try (IndexWriter writer = new IndexWriter(dir, iwc);
-                 IndexFiles indexFiles = new IndexFiles(vectorDictInstance)) {
-                indexFiles.indexDocs(writer, docDir);
+            } finally{
+                try {
+                    IOUtils.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
 
-                // NOTE: if you want to maximize search performance,
-                // you can optionally call forceMerge here. This can be
-                // a terribly costly operation, so generally it's only
-                // worth it when your index is relatively static (ie
-                // you're done adding documents to it):
-                //
-                // writer.forceMerge(1);
-            } finally {
-                IOUtils.close(vectorDictInstance);
             }
+
+            executor.shutdown();
+
+            try {
+                executor.awaitTermination(1, TimeUnit.HOURS);
+            } catch (final InterruptedException e) {
+                e.printStackTrace();
+                System.exit(-2);
+            }
+            writer.close();
+
 
             Date end = new Date();
             try (IndexReader reader = DirectoryReader.open(dir)) {
                 System.out.println("Indexed " + reader.numDocs() + " documents in " + (end.getTime() - start.getTime())
                         + " milliseconds");
-                if (reader.numDocs() > 100 && vectorDictSize < 1_000_000 && System.getProperty("smoketester") == null) {
+                if (reader.numDocs() > 100 && System.getProperty("smoketester") == null) {
                     throw new RuntimeException(
                             "Are you (ab)using the toy vector dictionary? See the package javadocs to understand why you got this exception.");
                 }
@@ -199,7 +222,7 @@ public class IndexFiles implements AutoCloseable {
      *               files to indt
      * @throws IOException If there is a low-level I/O error
      */
-    void indexDocs(final IndexWriter writer, Path path) throws IOException {
+    static void indexDocs(final IndexWriter writer, Path path) throws IOException {
         if (Files.isDirectory(path)) {
             Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
                 @Override
@@ -219,7 +242,7 @@ public class IndexFiles implements AutoCloseable {
     }
 
     /** Indexes a single document */
-    void indexDoc(IndexWriter writer, Path file, long lastModified) throws IOException {
+    static void indexDoc(IndexWriter writer, Path file, long lastModified) throws IOException {
         try (InputStream stream = Files.newInputStream(file)) {
             // make a new, empty document
             Document doc = new Document();
@@ -247,13 +270,6 @@ public class IndexFiles implements AutoCloseable {
             doc.add(new TextField("contents",
                     new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))));
 
-            if (demoEmbeddings != null) {
-                try (InputStream in = Files.newInputStream(file)) {
-                    float[] vector = demoEmbeddings
-                            .computeEmbedding(new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8)));
-                    doc.add(new KnnVectorField("contents-vector", vector, VectorSimilarityFunction.DOT_PRODUCT));
-                }
-            }
 
             if (writer.getConfig().getOpenMode() == OpenMode.CREATE) {
                 // New index, so we just add the document (no old document can be there):
@@ -267,10 +283,5 @@ public class IndexFiles implements AutoCloseable {
                 writer.updateDocument(new Term("path", file.toString()), doc);
             }
         }
-    }
-
-    @Override
-    public void close() throws IOException {
-        IOUtils.close(vectorDict);
     }
 }
