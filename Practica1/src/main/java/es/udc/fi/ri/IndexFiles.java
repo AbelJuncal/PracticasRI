@@ -123,6 +123,7 @@ public class IndexFiles implements AutoCloseable {
                 case "-deep":
                     isdepth = true;
                     deep = Integer.parseInt(args[++i]);
+                    break;
                 default:
                     throw new IllegalArgumentException("unknown parameter " + args[i]);
             }
