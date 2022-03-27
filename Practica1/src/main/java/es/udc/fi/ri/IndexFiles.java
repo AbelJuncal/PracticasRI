@@ -21,6 +21,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -28,17 +29,13 @@ import java.util.Date;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.demo.knn.DemoEmbeddings;
 import org.apache.lucene.demo.knn.KnnVectorDict;
-import org.apache.lucene.document.Document;
-import org.apache.lucene.document.Field;
-import org.apache.lucene.document.KnnVectorField;
-import org.apache.lucene.document.LongPoint;
-import org.apache.lucene.document.StringField;
-import org.apache.lucene.document.TextField;
+import org.apache.lucene.document.*;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
@@ -68,15 +65,19 @@ public class IndexFiles implements AutoCloseable {
 
         IndexWriter indexWriter;
         Path dir;
+        Boolean isDepth;
+        Integer depth;
 
-        IndexThread(Path dir, IndexWriter indexWriter) {
+        IndexThread(Path dir, IndexWriter indexWriter, Boolean isDepth, int depth) {
             this.dir = dir;
             this.indexWriter = indexWriter;
+            this.isDepth = isDepth;
+            this.depth = depth;
         }
 
         public void run(){
             try {
-                indexDocs(indexWriter, dir);
+                indexDocs(indexWriter, dir, isDepth, depth);
             } catch (IOException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
@@ -98,10 +99,10 @@ public class IndexFiles implements AutoCloseable {
                 + "IF DICT_PATH contains a KnnVector dictionary, the index will also support KnnVector search";
         String indexPath = "index";
         String docsPath = null;
-        String vectorDictSource = null;
         boolean create = true;
-        final int numCores = Runtime.getRuntime().availableProcessors();
-        final ExecutorService executor = Executors.newFixedThreadPool(numCores);
+        int numCores = Runtime.getRuntime().availableProcessors();
+        boolean isdepth = false;
+        int deep = 0;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "-index":
@@ -110,19 +111,24 @@ public class IndexFiles implements AutoCloseable {
                 case "-docs":
                     docsPath = args[++i];
                     break;
-                case "-knn_dict":
-                    vectorDictSource = args[++i];
-                    break;
                 case "-update":
                     create = false;
                     break;
                 case "-create":
                     create = true;
                     break;
+                case "-numThreads":
+                    numCores = Integer.parseInt(args[++i]);
+                    break;
+                case "-deep":
+                    isdepth = true;
+                    deep = Integer.parseInt(args[++i]);
                 default:
                     throw new IllegalArgumentException("unknown parameter " + args[i]);
             }
         }
+
+        final ExecutorService executor = Executors.newFixedThreadPool(numCores);
 
         if (docsPath == null) {
             System.err.println("Usage: " + usage);
@@ -166,8 +172,10 @@ public class IndexFiles implements AutoCloseable {
 
             try{
             for (final Path docs : directoryStream){
-                final Runnable worker = new IndexThread(docs, writer);
-                executor.execute(worker);
+                if(Files.isDirectory(docs)){
+                    final Runnable worker = new IndexThread(docs, writer, isdepth, deep);
+                    executor.execute(worker);
+                }
             }
 
             } finally{
@@ -222,13 +230,14 @@ public class IndexFiles implements AutoCloseable {
      *               files to indt
      * @throws IOException If there is a low-level I/O error
      */
-    static void indexDocs(final IndexWriter writer, Path path) throws IOException {
+    static void indexDocs(final IndexWriter writer, Path path, boolean isDepth, int depth) throws IOException {
+        int actualdepth = 0;
         if (Files.isDirectory(path)) {
             Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     try {
-                        indexDoc(writer, file, attrs.lastModifiedTime().toMillis());
+                        indexDoc(writer, file, attrs);
                     } catch (@SuppressWarnings("unused") IOException ignore) {
                         ignore.printStackTrace(System.err);
                         // don't index files that can't be read.
@@ -237,12 +246,12 @@ public class IndexFiles implements AutoCloseable {
                 }
             });
         } else {
-            indexDoc(writer, path, Files.getLastModifiedTime(path).toMillis());
+            indexDoc(writer, path, Files.readAttributes(path, BasicFileAttributes.class));
         }
     }
 
     /** Indexes a single document */
-    static void indexDoc(IndexWriter writer, Path file, long lastModified) throws IOException {
+    static void indexDoc(IndexWriter writer, Path file, BasicFileAttributes attrs) throws IOException {
         try (InputStream stream = Files.newInputStream(file)) {
             // make a new, empty document
             Document doc = new Document();
@@ -261,15 +270,44 @@ public class IndexFiles implements AutoCloseable {
             // year/month/day/hour/minutes/seconds, down the resolution you require.
             // For example the long value 2011021714 would mean
             // February 17, 2011, 2-3 PM.
-            doc.add(new LongPoint("modified", lastModified));
+
+
+            doc.add(new StringField("lastModifiedTime", String.valueOf(attrs.lastModifiedTime().toMillis()), Field.Store.YES));
+
+            doc.add(new StringField("creationTime", String.valueOf(attrs.creationTime().toMillis()), Field.Store.YES));
+
+            doc.add(new StringField("lastAccessTime", String.valueOf(attrs.lastAccessTime().toMillis()), Field.Store.YES));
+
+            doc.add(new StringField("sizeKB", String.valueOf((Files.size(file)/1024)), Field.Store.YES));
+
+            //Lucene times
+            Date creationDate = new Date(attrs.creationTime().toMillis());
+            doc.add(new TextField("creationTimeLucene", DateTools.dateToString(creationDate, DateTools.Resolution.MILLISECOND), Field.Store.YES));
+
+            Date lastAccessTimeLucene = new Date(attrs.lastAccessTime().toMillis());
+            doc.add(new TextField("lastAccessTimeLucene", DateTools.dateToString(lastAccessTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
+
+            Date lastModifiedTimeLucene = new Date(attrs.lastModifiedTime().toMillis());
+            doc.add(new TextField("lastModifiedTimeLucene", DateTools.dateToString(lastModifiedTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
 
             // Add the contents of the file to a field named "contents". Specify a Reader,
             // so that the text of the file is tokenized and indexed, but not stored.
             // Note that FileReader expects the file to be in UTF-8 encoding.
             // If that's not the case searching for special characters will fail.
-            doc.add(new TextField("contents",
-                    new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))));
+            String contents = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8)).lines().collect(Collectors.joining());
 
+            doc.add(new TextField("contents", contents,Field.Store.NO ));
+
+            doc.add(new TextField("contentsStored", contents, Field.Store.YES));
+
+            //Save the hostname
+            doc.add(new StringField("hostname", InetAddress.getLocalHost().getHostName(), Field.Store.YES));
+
+            //Save the thread
+            doc.add(new StringField("thread", Thread.currentThread().getName(), Field.Store.YES));
+
+            //Save the type
+            doc.add(new StringField("type", fileType(attrs), Field.Store.YES));
 
             if (writer.getConfig().getOpenMode() == OpenMode.CREATE) {
                 // New index, so we just add the document (no old document can be there):
@@ -282,6 +320,20 @@ public class IndexFiles implements AutoCloseable {
                 System.out.println("updating " + file);
                 writer.updateDocument(new Term("path", file.toString()), doc);
             }
+        }
+    }
+
+    public static String fileType(BasicFileAttributes attributes){
+        if(attributes.isDirectory()){
+            return "directory";
+        }else if(attributes.isRegularFile()){
+            return "regular file";
+        }else if(attributes.isSymbolicLink()){
+            return "symbolic link";
+        }else if(attributes.isOther()){
+            return "other";
+        }else{
+            return "not-known type";
         }
     }
 }
