@@ -17,15 +17,15 @@ package es.udc.fi.ri;
  * limitations under the License.
  */
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Date;
+import java.util.EnumSet;
+import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -47,6 +47,8 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.util.IOUtils;
+
+import static java.nio.file.FileVisitOption.FOLLOW_LINKS;
 
 /**
  * Index all text files under a directory.
@@ -79,8 +81,7 @@ public class IndexFiles implements AutoCloseable {
             try {
                 indexDocs(indexWriter, dir, isDepth, depth);
             } catch (IOException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
+                System.out.println("Aquí botase");
             }
 
         }
@@ -92,6 +93,14 @@ public class IndexFiles implements AutoCloseable {
 
     /** Index all text files under a directory. */
     public static void main(String[] args) throws Exception {
+        Properties prop = new Properties();
+        try{
+            prop.load(new FileInputStream("config.properties"));
+        } catch (IOException ex){
+            ex.printStackTrace();
+        }
+
+
         String usage = "java org.apache.lucene.demo.IndexFiles"
                 + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update] [-knn_dict DICT_PATH]\n\n"
                 + "This indexes the documents in DOCS_PATH, creating a Lucene index"
@@ -232,20 +241,36 @@ public class IndexFiles implements AutoCloseable {
      * @throws IOException If there is a low-level I/O error
      */
     static void indexDocs(final IndexWriter writer, Path path, boolean isDepth, int depth) throws IOException {
-        int actualdepth = 0;
         if (Files.isDirectory(path)) {
-            Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    try {
-                        indexDoc(writer, file, attrs);
-                    } catch (@SuppressWarnings("unused") IOException ignore) {
-                        ignore.printStackTrace(System.err);
-                        // don't index files that can't be read.
+            if(isDepth){
+                EnumSet<FileVisitOption> opts = EnumSet.of(FOLLOW_LINKS);
+                Files.walkFileTree(path, opts, depth, new SimpleFileVisitor<Path>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        try {
+                            indexDoc(writer, file, attrs);
+                        } catch (@SuppressWarnings("unused") IOException ignore) {
+                            ignore.printStackTrace(System.err);
+                            // don't index files that can't be read.
+                        }
+                        return FileVisitResult.CONTINUE;
                     }
-                    return FileVisitResult.CONTINUE;
-                }
-            });
+                });
+
+            }else{
+                Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        try {
+                            indexDoc(writer, file, attrs);
+                        } catch (@SuppressWarnings("unused") IOException ignore) {
+                            ignore.printStackTrace(System.err);
+                            // don't index files that can't be read.
+                        }
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+            }
         } else {
             indexDoc(writer, path, Files.readAttributes(path, BasicFileAttributes.class));
         }
@@ -321,6 +346,7 @@ public class IndexFiles implements AutoCloseable {
                 System.out.println("updating " + file);
                 writer.updateDocument(new Term("path", file.toString()), doc);
             }
+        }catch(IOException ignored){
         }
     }
 
