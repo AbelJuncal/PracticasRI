@@ -22,10 +22,7 @@ import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Date;
-import java.util.EnumSet;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -69,19 +66,49 @@ public class IndexFiles implements AutoCloseable {
         Path dir;
         Boolean isDepth;
         Integer depth;
+        List<String> fileformats;
+        Integer onlyTopLines;
+        Integer onlyBottomLines;
+        String indexDir;
+        Boolean partialindexes;
 
-        IndexThread(Path dir, IndexWriter indexWriter, Boolean isDepth, int depth) {
+
+        IndexThread(Path dir, IndexWriter indexWriter, Boolean isDepth, int depth, List<String> fileformats, Integer onlyTopLines, Integer onlyBottomLines, String indexDir,  Boolean partialindexes) {
             this.dir = dir;
             this.indexWriter = indexWriter;
             this.isDepth = isDepth;
             this.depth = depth;
+            this.fileformats = fileformats;
+            this.onlyTopLines = onlyTopLines;
+            this.onlyBottomLines = onlyBottomLines;
+            this.partialindexes = partialindexes;
+            this.indexDir = indexDir;
         }
 
         public void run(){
             try {
-                indexDocs(indexWriter, dir, isDepth, depth);
+                if(partialindexes){
+                    Analyzer analyzer = new StandardAnalyzer();
+                    Directory directory = FSDirectory.open(Paths.get(indexDir + "/" + Thread.currentThread().getName()));
+                    IndexWriterConfig config = new IndexWriterConfig(analyzer);
+                    IndexWriter iwriter = null;
+                    try{
+                        iwriter = new IndexWriter(directory, config);
+                    } catch (IOException e){
+                        e.printStackTrace();
+                    }
+                    try {
+                        indexDocs(iwriter, dir, isDepth, depth, fileformats, onlyTopLines, onlyBottomLines);
+                        iwriter.commit();
+                        iwriter.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }else{
+                    indexDocs(indexWriter, dir, isDepth, depth, fileformats, onlyTopLines, onlyBottomLines);
+                }
             } catch (IOException e) {
-                System.out.println("Aquí botase");
+                e.printStackTrace();
             }
 
         }
@@ -94,10 +121,30 @@ public class IndexFiles implements AutoCloseable {
     /** Index all text files under a directory. */
     public static void main(String[] args) throws Exception {
         Properties prop = new Properties();
-        try{
-            prop.load(new FileInputStream("config.properties"));
-        } catch (IOException ex){
-            ex.printStackTrace();
+
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        InputStream inputStream = loader.getResourceAsStream("config.properties");
+        prop.load(inputStream);
+        String onlyFiles = prop.getProperty("onlyFiles");
+        Integer onlyTopLines = (prop.getProperty("onlyTopLines") != null) ?  Integer.parseInt(prop.getProperty("onlyTopLines")) : null;
+        Integer onlyBottomLines = (prop.getProperty("onlyBottomLines") != null) ?  Integer.parseInt(prop.getProperty("onlyBottomLines")) : null;
+
+        List<String> formatAccepted = new ArrayList<>();
+
+        if(onlyFiles != null){
+            StringTokenizer st = new StringTokenizer(onlyFiles);
+            while (st.hasMoreTokens()){
+                formatAccepted.add(st.nextToken());
+            }
+        }
+
+        if (onlyTopLines == null && onlyBottomLines == null){
+            onlyTopLines = -1;
+            onlyBottomLines = -1;
+        }else if (onlyTopLines == null){
+            onlyTopLines = 0;
+        }else if(onlyBottomLines == null){
+            onlyBottomLines = 0;
         }
 
 
@@ -183,7 +230,7 @@ public class IndexFiles implements AutoCloseable {
             try{
             for (final Path docs : directoryStream){
                 if(Files.isDirectory(docs)){
-                    final Runnable worker = new IndexThread(docs, writer, isdepth, deep);
+                    final Runnable worker = new IndexThread(docs, writer, isdepth, deep, formatAccepted, onlyTopLines, onlyBottomLines, indexPath, false);
                     executor.execute(worker);
                 }
             }
@@ -206,6 +253,34 @@ public class IndexFiles implements AutoCloseable {
                 System.exit(-2);
             }
             writer.close();
+
+            if(true){
+                IndexWriterConfig iconfig = new IndexWriterConfig(new StandardAnalyzer());
+                IndexWriter ifusedwriter = null;
+
+                MMapDirectory dir3 = null;
+                try{
+                    dir3 = new MMapDirectory(Paths.get(indexPath));
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                try{
+                    ifusedwriter = new IndexWriter(dir3, iconfig);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                DirectoryStream<Path> stream = Files.newDirectoryStream(Paths.get(indexPath));
+                for(final Path path : stream){
+                    if(Files.isDirectory(path)){
+                        Directory auxdir = FSDirectory.open(path);
+                        ifusedwriter.addIndexes(auxdir);
+                    }
+                }
+                ifusedwriter.commit();
+                ifusedwriter.close();
+            }else{
+
+            }
 
 
             Date end = new Date();
@@ -240,7 +315,7 @@ public class IndexFiles implements AutoCloseable {
      *               files to indt
      * @throws IOException If there is a low-level I/O error
      */
-    static void indexDocs(final IndexWriter writer, Path path, boolean isDepth, int depth) throws IOException {
+    static void indexDocs(final IndexWriter writer, Path path, boolean isDepth, int depth, List<String> format, int onlyTopLines, int onlyBottomLines) throws IOException {
         if (Files.isDirectory(path)) {
             if(isDepth){
                 EnumSet<FileVisitOption> opts = EnumSet.of(FOLLOW_LINKS);
@@ -248,7 +323,7 @@ public class IndexFiles implements AutoCloseable {
                     @Override
                     public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                         try {
-                            indexDoc(writer, file, attrs);
+                            indexDoc(writer, file, attrs, format, onlyTopLines, onlyBottomLines);
                         } catch (@SuppressWarnings("unused") IOException ignore) {
                             ignore.printStackTrace(System.err);
                             // don't index files that can't be read.
@@ -262,7 +337,7 @@ public class IndexFiles implements AutoCloseable {
                     @Override
                     public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                         try {
-                            indexDoc(writer, file, attrs);
+                            indexDoc(writer, file, attrs, format, onlyTopLines, onlyBottomLines);
                         } catch (@SuppressWarnings("unused") IOException ignore) {
                             ignore.printStackTrace(System.err);
                             // don't index files that can't be read.
@@ -272,81 +347,116 @@ public class IndexFiles implements AutoCloseable {
                 });
             }
         } else {
-            indexDoc(writer, path, Files.readAttributes(path, BasicFileAttributes.class));
+            indexDoc(writer, path, Files.readAttributes(path, BasicFileAttributes.class), format, onlyTopLines, onlyBottomLines);
         }
     }
 
     /** Indexes a single document */
-    static void indexDoc(IndexWriter writer, Path file, BasicFileAttributes attrs) throws IOException {
-        try (InputStream stream = Files.newInputStream(file)) {
-            // make a new, empty document
-            Document doc = new Document();
+    static void indexDoc(IndexWriter writer, Path file, BasicFileAttributes attrs, List<String> format, int onlyTopLines, int onlyBottomLines) throws IOException {
+        String extension = "";
+        int index = file.toString().lastIndexOf('.');
+        if (index > 0) {
+            extension = file.toString().substring(index);
+        }
 
-            // Add the path of the file as a field named "path". Use a
-            // field that is indexed (i.e. searchable), but don't tokenize
-            // the field into separate words and don't index term frequency
-            // or positional information:
-            Field pathField = new StringField("path", file.toString(), Field.Store.YES);
-            doc.add(pathField);
+        if(!format.isEmpty() && format.contains(extension)) {
+            try (InputStream stream = Files.newInputStream(file)) {
+                // make a new, empty document
+                Document doc = new Document();
 
-            // Add the last modified date of the file a field named "modified".
-            // Use a LongPoint that is indexed (i.e. efficiently filterable with
-            // PointRangeQuery). This indexes to milli-second resolution, which
-            // is often too fine. You could instead create a number based on
-            // year/month/day/hour/minutes/seconds, down the resolution you require.
-            // For example the long value 2011021714 would mean
-            // February 17, 2011, 2-3 PM.
+                // Add the path of the file as a field named "path". Use a
+                // field that is indexed (i.e. searchable), but don't tokenize
+                // the field into separate words and don't index term frequency
+                // or positional information:
+                Field pathField = new StringField("path", file.toString(), Field.Store.YES);
+                doc.add(pathField);
+
+                // Add the last modified date of the file a field named "modified".
+                // Use a LongPoint that is indexed (i.e. efficiently filterable with
+                // PointRangeQuery). This indexes to milli-second resolution, which
+                // is often too fine. You could instead create a number based on
+                // year/month/day/hour/minutes/seconds, down the resolution you require.
+                // For example the long value 2011021714 would mean
+                // February 17, 2011, 2-3 PM.
 
 
-            doc.add(new StringField("lastModifiedTime", String.valueOf(attrs.lastModifiedTime().toMillis()), Field.Store.YES));
+                doc.add(new StringField("lastModifiedTime", String.valueOf(attrs.lastModifiedTime().toMillis()), Field.Store.YES));
 
-            doc.add(new StringField("creationTime", String.valueOf(attrs.creationTime().toMillis()), Field.Store.YES));
+                doc.add(new StringField("creationTime", String.valueOf(attrs.creationTime().toMillis()), Field.Store.YES));
 
-            doc.add(new StringField("lastAccessTime", String.valueOf(attrs.lastAccessTime().toMillis()), Field.Store.YES));
+                doc.add(new StringField("lastAccessTime", String.valueOf(attrs.lastAccessTime().toMillis()), Field.Store.YES));
 
-            doc.add(new StringField("sizeKB", String.valueOf((Files.size(file)/1024)), Field.Store.YES));
+                doc.add(new StringField("sizeKB", String.valueOf((Files.size(file) / 1024)), Field.Store.YES));
 
-            //Lucene times
-            Date creationDate = new Date(attrs.creationTime().toMillis());
-            doc.add(new TextField("creationTimeLucene", DateTools.dateToString(creationDate, DateTools.Resolution.MILLISECOND), Field.Store.YES));
+                //Lucene times
+                Date creationDate = new Date(attrs.creationTime().toMillis());
+                doc.add(new TextField("creationTimeLucene", DateTools.dateToString(creationDate, DateTools.Resolution.MILLISECOND), Field.Store.YES));
 
-            Date lastAccessTimeLucene = new Date(attrs.lastAccessTime().toMillis());
-            doc.add(new TextField("lastAccessTimeLucene", DateTools.dateToString(lastAccessTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
+                Date lastAccessTimeLucene = new Date(attrs.lastAccessTime().toMillis());
+                doc.add(new TextField("lastAccessTimeLucene", DateTools.dateToString(lastAccessTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
 
-            Date lastModifiedTimeLucene = new Date(attrs.lastModifiedTime().toMillis());
-            doc.add(new TextField("lastModifiedTimeLucene", DateTools.dateToString(lastModifiedTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
+                Date lastModifiedTimeLucene = new Date(attrs.lastModifiedTime().toMillis());
+                doc.add(new TextField("lastModifiedTimeLucene", DateTools.dateToString(lastModifiedTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
 
-            // Add the contents of the file to a field named "contents". Specify a Reader,
-            // so that the text of the file is tokenized and indexed, but not stored.
-            // Note that FileReader expects the file to be in UTF-8 encoding.
-            // If that's not the case searching for special characters will fail.
-            String contents = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8)).lines().collect(Collectors.joining());
+                // Add the contents of the file to a field named "contents". Specify a Reader,
+                // so that the text of the file is tokenized and indexed, but not stored.
+                // Note that FileReader expects the file to be in UTF-8 encoding.
+                // If that's not the case searching for special characters will fail.
+                String contents;
 
-            doc.add(new TextField("contents", contents,Field.Store.NO ));
+                if(onlyTopLines == -1 && onlyBottomLines == -1){
+                    contents = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8)).lines().collect(Collectors.joining());
+                }else{
+                    contents = "";
+                    InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8);
+                    BufferedReader br = new BufferedReader(reader);
+                    int firstLines = onlyTopLines;
+                    String line;
+                    while ((line = br.readLine()) != null && firstLines>0){
+                        contents = contents.concat(line);
+                        firstLines --;
+                    }
 
-            doc.add(new TextField("contentsStored", contents, Field.Store.YES));
+                    BufferedReader brlast = new BufferedReader(reader);
+                    int lines = (int) Files.lines(file).count();
+                    int lastLines = lines - onlyBottomLines;
+                    int readlines = 0;
 
-            //Save the hostname
-            doc.add(new StringField("hostname", InetAddress.getLocalHost().getHostName(), Field.Store.YES));
+                    while ((line = brlast.readLine()) != null && readlines<=lines){
+                        if(readlines > lastLines) {
+                            contents = contents.concat(line);
+                            lastLines++;
+                        }
+                    }
+                }
+                //String contents = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8)).lines().collect(Collectors.joining());
 
-            //Save the thread
-            doc.add(new StringField("thread", Thread.currentThread().getName(), Field.Store.YES));
+                doc.add(new TextField("contents", contents, Field.Store.NO));
 
-            //Save the type
-            doc.add(new StringField("type", fileType(attrs), Field.Store.YES));
+                doc.add(new TextField("contentsStored", contents, Field.Store.YES));
 
-            if (writer.getConfig().getOpenMode() == OpenMode.CREATE) {
-                // New index, so we just add the document (no old document can be there):
-                System.out.println("adding " + file);
-                writer.addDocument(doc);
-            } else {
-                // Existing index (an old copy of this document may have been indexed) so
-                // we use updateDocument instead to replace the old one matching the exact
-                // path, if present:
-                System.out.println("updating " + file);
-                writer.updateDocument(new Term("path", file.toString()), doc);
+                //Save the hostname
+                doc.add(new StringField("hostname", InetAddress.getLocalHost().getHostName(), Field.Store.YES));
+
+                //Save the thread
+                doc.add(new StringField("thread", Thread.currentThread().getName(), Field.Store.YES));
+
+                //Save the type
+                doc.add(new StringField("type", fileType(attrs), Field.Store.YES));
+
+                if (writer.getConfig().getOpenMode() == OpenMode.CREATE) {
+                    // New index, so we just add the document (no old document can be there):
+                    System.out.println("adding " + file);
+                    writer.addDocument(doc);
+                } else {
+                    // Existing index (an old copy of this document may have been indexed) so
+                    // we use updateDocument instead to replace the old one matching the exact
+                    // path, if present:
+                    System.out.println("updating " + file);
+                    writer.updateDocument(new Term("path", file.toString()), doc);
+                }
+            } catch (IOException ignored) {
             }
-        }catch(IOException ignored){
         }
     }
 
