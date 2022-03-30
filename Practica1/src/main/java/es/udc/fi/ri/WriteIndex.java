@@ -1,5 +1,17 @@
 package es.udc.fi.ri;
 
+import org.apache.lucene.document.Document;
+import org.apache.lucene.index.*;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.store.FSDirectory;
+import org.apache.lucene.util.BytesRef;
+
+import javax.security.auth.login.AccountLockedException;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Paths;
+import java.util.List;
+
 public class WriteIndex {
 
     public static void main(String[] args){
@@ -16,5 +28,36 @@ public class WriteIndex {
                     break;
             }
         }
+        if(outputpath == null){
+            System.exit(-1);
+        }
+
+        try (DirectoryReader reader = DirectoryReader.open(FSDirectory.open((Paths.get(indexPath)))); FileWriter writer = new FileWriter(outputpath)) {
+            int i;
+            for (i = 0; i < reader.numDocs(); i++) {
+                Document doc = reader.document(i);
+                List<IndexableField> fields = doc.getFields();
+                writer.write("DocID = " + i);
+                writer.write("\n");
+
+                for (IndexableField field : fields) {
+
+                    writer.write(field.name() + " = " + doc.get(field.name()));
+                    writer.write("\n");
+                }
+
+                writer.write("\n");
+                writer.write("-----------------------------------");
+                writer.write("\n");
+
+            }
+        } catch (IOException e1) {
+            System.out.println("Graceful message: exception " + e1);
+            e1.printStackTrace();
+        }
+
+
+
+
     }
 }
