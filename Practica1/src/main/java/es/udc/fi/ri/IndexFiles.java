@@ -22,6 +22,7 @@ import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -30,16 +31,9 @@ import java.util.stream.Collectors;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.demo.knn.DemoEmbeddings;
-import org.apache.lucene.demo.knn.KnnVectorDict;
 import org.apache.lucene.document.*;
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.*;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
-import org.apache.lucene.index.Term;
-import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.MMapDirectory;
@@ -110,7 +104,9 @@ public class IndexFiles implements AutoCloseable {
             } catch (IOException e) {
                 e.printStackTrace();
             }
+
         }
+
     }
     static final String KNN_DICT = "knn-dict";
 
@@ -154,9 +150,9 @@ public class IndexFiles implements AutoCloseable {
         String indexPath = "index";
         String docsPath = null;
         boolean create = true;
+        boolean partialIndexes = false;
         int numCores = Runtime.getRuntime().availableProcessors();
         boolean isdepth = false;
-        boolean ispartial = false;
         int deep = 0;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -175,12 +171,12 @@ public class IndexFiles implements AutoCloseable {
                 case "-numThreads":
                     numCores = Integer.parseInt(args[++i]);
                     break;
+                case "-partialIndexes":
+                    partialIndexes = true;
+                    break;
                 case "-deep":
                     isdepth = true;
                     deep = Integer.parseInt(args[++i]);
-                    break;
-                case "-partialIndexes":
-                    ispartial = true;
                     break;
                 default:
                     throw new IllegalArgumentException("unknown parameter " + args[i]);
@@ -232,7 +228,7 @@ public class IndexFiles implements AutoCloseable {
             try{
             for (final Path docs : directoryStream){
                 if(Files.isDirectory(docs)){
-                    final Runnable worker = new IndexThread(docs, writer, isdepth, deep, formatAccepted, onlyTopLines, onlyBottomLines, indexPath, ispartial);
+                    final Runnable worker = new IndexThread(docs, writer, isdepth, deep, formatAccepted, onlyTopLines, onlyBottomLines, indexPath, false);
                     executor.execute(worker);
                 }
             }
@@ -256,7 +252,7 @@ public class IndexFiles implements AutoCloseable {
             }
             writer.close();
 
-            if(ispartial){
+            if(partialIndexes){
                 IndexWriterConfig iconfig = new IndexWriterConfig(new StandardAnalyzer());
                 IndexWriter ifusedwriter = null;
 
@@ -289,10 +285,6 @@ public class IndexFiles implements AutoCloseable {
             try (IndexReader reader = DirectoryReader.open(dir)) {
                 System.out.println("Indexed " + reader.numDocs() + " documents in " + (end.getTime() - start.getTime())
                         + " milliseconds");
-                if (reader.numDocs() > 100 && System.getProperty("smoketester") == null) {
-                    throw new RuntimeException(
-                            "Are you (ab)using the toy vector dictionary? See the package javadocs to understand why you got this exception.");
-                }
             }
         } catch (IOException e) {
             System.out.println(" caught a " + e.getClass() + "\n with message: " + e.getMessage());
@@ -381,24 +373,45 @@ public class IndexFiles implements AutoCloseable {
                 // For example the long value 2011021714 would mean
                 // February 17, 2011, 2-3 PM.
 
+                String formato = "yyyy-MM-dd HH:mm:ss";
+                SimpleDateFormat formateo = new SimpleDateFormat(formato);
+                String lastModifiedTime = formateo.format(new Date(attrs.lastModifiedTime().toMillis()));
+                String creationTime = formateo.format(new Date(attrs.creationTime().toMillis()));
+                String lastAccessTime = formateo.format(new Date(attrs.lastAccessTime().toMillis()));
 
-                doc.add(new StringField("lastModifiedTime", String.valueOf(attrs.lastModifiedTime().toMillis()), Field.Store.YES));
+                doc.add(new Field("lastModifiedTime", lastModifiedTime, typeb));
 
-                doc.add(new StringField("creationTime", String.valueOf(attrs.creationTime().toMillis()), Field.Store.YES));
+                doc.add(new Field("creationTime", creationTime, typeb));
 
-                doc.add(new StringField("lastAccessTime", String.valueOf(attrs.lastAccessTime().toMillis()), Field.Store.YES));
+                doc.add(new Field("lastAccessTime", lastAccessTime, typeb));
 
-                doc.add(new StringField("sizeKB", String.valueOf((Files.size(file) / 1024)), Field.Store.YES));
+                doc.add(new Field("sizeKB", String.valueOf((Files.size(file) / 1024)), typeb));
+
+                Date creationTimeLucene = new Date(attrs.creationTime().toMillis());
+                Date lastAccessTimeLucene = new Date(attrs.lastAccessTime().toMillis());
+                Date lastModifiedTimeLucene = new Date(attrs.lastModifiedTime().toMillis());
+
+                doc.add(new Field("creationTimeLucene", DateTools.dateToString(creationTimeLucene, DateTools.Resolution.MILLISECOND), typeb));
+                doc.add(new Field("lastAccessTimeLucene", DateTools.dateToString(lastAccessTimeLucene, DateTools.Resolution.MILLISECOND), typeb));
+                doc.add(new Field("lastModifiedTimeLucene", DateTools.dateToString(lastModifiedTimeLucene, DateTools.Resolution.MILLISECOND), typeb));
+
+                //doc.add(new StringField("lastModifiedTime", formateo.format(new Date(attrs.lastModifiedTime().toMillis())), Field.Store.YES));
+
+                //doc.add(new StringField("creationTime", String.valueOf(attrs.creationTime().toMillis()), Field.Store.YES));
+
+                //doc.add(new StringField("lastAccessTime", String.valueOf(attrs.lastAccessTime().toMillis()), Field.Store.YES));
+
+                //doc.add(new StringField("sizeKB", String.valueOf((Files.size(file) / 1024)), Field.Store.YES));
 
                 //Lucene times
-                Date creationDate = new Date(attrs.creationTime().toMillis());
-                doc.add(new TextField("creationTimeLucene", DateTools.dateToString(creationDate, DateTools.Resolution.MILLISECOND), Field.Store.YES));
+                //Date creationTimeLucene = new Date(attrs.creationTime().toMillis());
+                //doc.add(new TextField("creationTimeLucene", DateTools.dateToString(creationTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
 
-                Date lastAccessTimeLucene = new Date(attrs.lastAccessTime().toMillis());
-                doc.add(new TextField("lastAccessTimeLucene", DateTools.dateToString(lastAccessTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
+                //Date lastAccessTimeLucene = new Date(attrs.lastAccessTime().toMillis());
+                //doc.add(new TextField("lastAccessTimeLucene", DateTools.dateToString(lastAccessTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
 
-                Date lastModifiedTimeLucene = new Date(attrs.lastModifiedTime().toMillis());
-                doc.add(new TextField("lastModifiedTimeLucene", DateTools.dateToString(lastModifiedTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
+                //Date lastModifiedTimeLucene = new Date(attrs.lastModifiedTime().toMillis());
+                //doc.add(new TextField("lastModifiedTimeLucene", DateTools.dateToString(lastModifiedTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
 
                 // Add the contents of the file to a field named "contents". Specify a Reader,
                 // so that the text of the file is tokenized and indexed, but not stored.
@@ -433,18 +446,23 @@ public class IndexFiles implements AutoCloseable {
                 }
                 //String contents = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8)).lines().collect(Collectors.joining());
 
-                doc.add(new TextField("contents", contents, Field.Store.NO));
+                //doc.add(new TextField("contents", contents, Field.Store.NO));
+                doc.add(new Field("contents", contents, typec));
 
-                doc.add(new TextField("contentsStored", contents, Field.Store.YES));
+                //doc.add(new TextField("contentsStored", contents, Field.Store.YES));
+                doc.add(new Field("contentsStored", contents, typea));
 
                 //Save the hostname
-                doc.add(new StringField("hostname", InetAddress.getLocalHost().getHostName(), Field.Store.YES));
+                //doc.add(new StringField("hostname", InetAddress.getLocalHost().getHostName(), Field.Store.YES));
+                doc.add(new Field("hostname", InetAddress.getLocalHost().getHostName(), typeb));
 
                 //Save the thread
-                doc.add(new StringField("thread", Thread.currentThread().getName(), Field.Store.YES));
+                //doc.add(new StringField("thread", Thread.currentThread().getName(), Field.Store.YES));
+                doc.add(new Field( "thread", Thread.currentThread().getName(), typeb));
 
                 //Save the type
-                doc.add(new StringField("type", fileType(attrs), Field.Store.YES));
+                //doc.add(new StringField("type", fileType(attrs), Field.Store.YES));
+                doc.add(new Field("type",fileType(attrs), typeb));
 
                 if (writer.getConfig().getOpenMode() == OpenMode.CREATE) {
                     // New index, so we just add the document (no old document can be there):
@@ -474,5 +492,32 @@ public class IndexFiles implements AutoCloseable {
         }else{
             return "not-known type";
         }
+    }
+
+    public static final FieldType typea = new FieldType();
+    public static final FieldType typeb = new FieldType();
+    public static final FieldType typec = new FieldType();
+
+    static{
+        typea.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
+        typea.setTokenized(true);
+        typea.setStored(true);
+        typea.setStoreTermVectors(true);
+        typea.setStoreTermVectorPositions(true);
+        typea.freeze();
+
+        typeb.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
+        typeb.setTokenized(false);
+        typeb.setStored(true);
+        typeb.setStoreTermVectors(true);
+        typeb.freeze();
+
+        typec.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
+        typec.setStored(false);
+        typec.setTokenized(true);
+        typec.setStoreTermVectors(true);
+        typec.freeze();
+
+
     }
 }
