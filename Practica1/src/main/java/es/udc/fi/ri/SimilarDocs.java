@@ -53,6 +53,8 @@ public class SimilarDocs {
             Map<TermsEnum, Integer> map = new HashMap<>();
 
             Terms terms = indexReader.getTermVector(Integer.parseInt(docsID), field);
+
+
         } catch (IOException e) {
             e.printStackTrace();
         }
