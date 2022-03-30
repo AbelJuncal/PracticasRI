@@ -110,9 +110,7 @@ public class IndexFiles implements AutoCloseable {
             } catch (IOException e) {
                 e.printStackTrace();
             }
-
         }
-
     }
     static final String KNN_DICT = "knn-dict";
 
@@ -158,6 +156,7 @@ public class IndexFiles implements AutoCloseable {
         boolean create = true;
         int numCores = Runtime.getRuntime().availableProcessors();
         boolean isdepth = false;
+        boolean ispartial = false;
         int deep = 0;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -179,6 +178,9 @@ public class IndexFiles implements AutoCloseable {
                 case "-deep":
                     isdepth = true;
                     deep = Integer.parseInt(args[++i]);
+                    break;
+                case "-partialIndexes":
+                    ispartial = true;
                     break;
                 default:
                     throw new IllegalArgumentException("unknown parameter " + args[i]);
@@ -230,7 +232,7 @@ public class IndexFiles implements AutoCloseable {
             try{
             for (final Path docs : directoryStream){
                 if(Files.isDirectory(docs)){
-                    final Runnable worker = new IndexThread(docs, writer, isdepth, deep, formatAccepted, onlyTopLines, onlyBottomLines, indexPath, false);
+                    final Runnable worker = new IndexThread(docs, writer, isdepth, deep, formatAccepted, onlyTopLines, onlyBottomLines, indexPath, ispartial);
                     executor.execute(worker);
                 }
             }
@@ -254,7 +256,7 @@ public class IndexFiles implements AutoCloseable {
             }
             writer.close();
 
-            if(true){
+            if(ispartial){
                 IndexWriterConfig iconfig = new IndexWriterConfig(new StandardAnalyzer());
                 IndexWriter ifusedwriter = null;
 
