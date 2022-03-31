@@ -20,6 +20,8 @@ public class DocClusters {
         Integer top = null;
         String rep = null;
         Integer k = null;
+        String usage = "java es.udc.fi.ri.SimilarDocs"
+                + " [-index INDEX_PATH] [-doc DOCS_PATH] [-field] [-top] [-rep bin, tf, tfxidf] [-k]\n\n";
 
         List<String> options = Arrays.asList("bin", "tf", "tfxidf");
 

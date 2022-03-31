@@ -2,11 +2,7 @@ package es.udc.fi.ri;
 
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.*;
-import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.store.FSDirectory;
-import org.apache.lucene.util.BytesRef;
-
-import javax.security.auth.login.AccountLockedException;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Paths;
@@ -18,6 +14,9 @@ public class WriteIndex {
 
         String indexPath = "index";
         String outputpath = null;
+        String usage = "java es.udc.fi.ri.WriteIndex"
+                + " [-index INDEX_PATH] [-outputfile OUTPUT_FILE_PATH]\n\n";
+
         for(int i = 0; i < args.length; i++){
             switch (args[i]){
                 case "-index":
@@ -37,27 +36,19 @@ public class WriteIndex {
             for (i = 0; i < reader.numDocs(); i++) {
                 Document doc = reader.document(i);
                 List<IndexableField> fields = doc.getFields();
-                writer.write("DocID = " + i);
-                writer.write("\n");
+                writer.write("DocID = " + i + "\n");
 
                 for (IndexableField field : fields) {
 
-                    writer.write(field.name() + " = " + doc.get(field.name()));
-                    writer.write("\n");
+                    writer.write(field.name() + " = " + doc.get(field.name()) + "\n");
                 }
-
-                writer.write("\n");
-                writer.write("-----------------------------------");
-                writer.write("\n");
+                writer.write("\n-----------------------------------\n\n");
 
             }
         } catch (IOException e1) {
             System.out.println("Graceful message: exception " + e1);
             e1.printStackTrace();
         }
-
-
-
 
     }
 }

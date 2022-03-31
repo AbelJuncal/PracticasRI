@@ -17,6 +17,8 @@ public class BestTermsInDoc {
         Integer top = null;
         String order = null;
         String outputFile = null;
+        String usage = "java es.udc.fi.ri.SimilarDocs"
+                + " [-index INDEX_PATH] [-docID] [-field] [-top] [-order df, tf, idf, tfxidf] [-outputfile OUTPUT_FILE_PATH]\n\n";
 
         List<String> options = Arrays.asList("df", "tf", "idf", "tfxidf");
 

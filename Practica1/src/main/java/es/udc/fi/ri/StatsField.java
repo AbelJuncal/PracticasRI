@@ -5,11 +5,9 @@ import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.search.CollectionStatistics;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.nio.file.Paths;
 
 public class StatsField {
@@ -18,6 +16,8 @@ public class StatsField {
         boolean optionField = false;
         String indexPath = "index";
         String field = null;
+        String usage = "java es.udc.fi.ri.StatsField"
+                + " [-index INDEX_PATH] [-field]\n\n";
 
         for(int i = 0; i < args.length; i++){
             switch (args[i]){
@@ -36,7 +36,6 @@ public class StatsField {
             searcher = new IndexSearcher(reader);
             final FieldInfos fieldInfos = FieldInfos.getMergedFieldInfos(reader);
             CollectionStatistics cs;
-
             if (optionField) {
                 cs = searcher.collectionStatistics(field);
                 printStatistics(cs);
@@ -44,7 +43,6 @@ public class StatsField {
                 for (final FieldInfo fieldInfo : fieldInfos) {
                     cs = searcher.collectionStatistics(fieldInfo.name);
                     printStatistics(cs);
-                    //System.out.println(cs);
                 }
             }
         } catch (IOException e1) {
