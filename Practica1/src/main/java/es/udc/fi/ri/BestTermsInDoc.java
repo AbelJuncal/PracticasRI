@@ -12,7 +12,7 @@ import java.util.stream.Stream;
 public class BestTermsInDoc {
     public static void main(String[] args) throws IOException {
         String indexPath = "index";
-        String docsID = null;
+        String docID = null;
         String field = null;
         Integer top = null;
         String order = null;
@@ -26,7 +26,7 @@ public class BestTermsInDoc {
                     indexPath = args[++i];
                     break;
                 case "-docID":
-                    docsID = args[++i];
+                    docID = args[++i];
                     break;
                 case "-field":
                     field = args[++i];
@@ -52,7 +52,7 @@ public class BestTermsInDoc {
         Directory dir = null;
         DirectoryReader indexReader = null;
 
-        if(docsID == null){
+        if(docID == null){
             //System.err.println("Usage: " + usage);
             System.exit(1);
         }
@@ -64,7 +64,7 @@ public class BestTermsInDoc {
             Map<String, Double> map = new HashMap<>();
             Map<String, List<Double>> fullTuple = new HashMap<>();
 
-            Terms terms = indexReader.getTermVector(Integer.parseInt(docsID), field);
+            Terms terms = indexReader.getTermVector(Integer.parseInt(docID), field);
 
             TermsEnum iterate = terms.iterator();
 
@@ -94,7 +94,8 @@ public class BestTermsInDoc {
             //System.out.println(map);
             Stream<Map.Entry<String, Double>> sorted = map.entrySet().stream().sorted(Map.Entry.<String, Double>comparingByValue().reversed());
             //System.out.println(Arrays.toString(sorted.toArray()));
-            System.out.println(getResults(sorted, top, field, order, fullTuple));
+            String filename =  indexReader.document(Integer.parseInt(docID)).getField("path").stringValue();
+            System.out.println(getResults(sorted, top, field, order, fullTuple, filename));
         } catch (IOException e1) {
             System.out.println("Graceful message: exception " + e1);
             e1.printStackTrace();
@@ -119,15 +120,17 @@ public class BestTermsInDoc {
         return -1;
     }
 
-    public static String getResults(Stream<Map.Entry<String, Double>> sorted, int n, String field, String order,  Map<String, List<Double>> fullTuple){
+    public static String getResults(Stream<Map.Entry<String, Double>> sorted, int n, String field, String order,  Map<String, List<Double>> fullTuple, String docId){
         Object[] arrays = sorted.toArray();
-        String results = "";
-        results = results + ("Top " + n + " terms for field " + field + ", ordered by " + order + ":\n");
+        StringBuilder results = new StringBuilder();
+        results.append("Top ").append(n).append(" terms for field ").append(field).append(" in doc ").append(docId).append(", ordered by ").append(order).append(":\n");
         for(int i = 0; i<n && i< arrays.length; i++){
             String name = arrays[i].toString().split("=")[0];
             List<Double> values = fullTuple.get(name);
-            results = results.concat( name + "\t" + values.get(0) + "\t" + values.get(1) + "\t" + values.get(2) + "\t" + values.get(3)) + "\n";
+            results.append(String.format("%-15s", name)).append("\t").append(String.format("%10.2f", values.get(0)));
+            results.append("\t").append(String.format("%20.2f", values.get(1))).append("\t");
+            results.append(String.format("%20.2f", values.get(2))).append("\t").append(String.format("%20.2f", values.get(3))).append("\n");
         }
-        return results;
+        return results.toString();
     }
 }

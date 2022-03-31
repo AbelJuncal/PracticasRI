@@ -21,7 +21,7 @@ public class SimilarDocs {
     public static List<RealVector> docsVector = new ArrayList<>();
 
     public static void main(String[] args) throws IOException {
-        String indexPath = "index";
+        String indexPath = null;
         String docsID = null;
         String field = null;
         Integer top = null;
@@ -49,7 +49,7 @@ public class SimilarDocs {
             }
         }
 
-        if(docsID == null | field == null | top == null | !options.contains(rep)){
+        if(indexPath == null | docsID == null | field == null | top == null | !options.contains(rep)){
             System.out.print("Bad arguments");
             System.exit(1);
         }
@@ -79,7 +79,6 @@ public class SimilarDocs {
 
             while ((doctext = documentTermsEnum.next())!=null){
                 String term = doctext.utf8ToString();
-                //double freq = documentTermsEnum.totalTermFreq();
                 double freq = getValue(indexReader, documentTermsEnum, rep, null, null);
                 documentFrequencies.put(term, freq);
                 terms.add(term);
