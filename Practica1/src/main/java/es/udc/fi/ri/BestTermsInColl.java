@@ -19,6 +19,8 @@ public class BestTermsInColl {
         Integer top = null;
         String order = null;
         boolean rev = false;
+        String usage = "java es.udc.fi.ri.SimilarDocs"
+                + " [-index INDEX_PATH] [-field] [-top] [-rev df, idf]\n\n";
 
         for(int i = 0; i < args.length; i++){
             switch (args[i]){

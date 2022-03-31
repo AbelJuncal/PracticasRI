@@ -26,6 +26,8 @@ public class SimilarDocs {
         String field = null;
         Integer top = null;
         String rep = null;
+        String usage = "java es.udc.fi.ri.SimilarDocs"
+                + " [-index INDEX_PATH] [-doc DOCS_PATH] [-field] [-top] [-rep bin, tf, tfxidf]\n\n";
 
         List<String> options = Arrays.asList("bin", "tf", "tfxidf");
 
