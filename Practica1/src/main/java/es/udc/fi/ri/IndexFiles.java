@@ -65,11 +65,11 @@ public class IndexFiles implements AutoCloseable {
         Integer onlyBottomLines;
         String indexDir;
         Boolean partialindexes;
+        Boolean create;
 
-
-        IndexThread(Path dir, IndexWriter indexWriter, Boolean isDepth, int depth, List<String> fileformats, Integer onlyTopLines, Integer onlyBottomLines, String indexDir,  Boolean partialindexes) {
-            this.dir = dir;
+        IndexThread(Path dir, IndexWriter indexWriter, Boolean isDepth, int depth, List<String> fileformats, Integer onlyTopLines, Integer onlyBottomLines, String indexDir,  Boolean partialindexes, Boolean create) {
             this.indexWriter = indexWriter;
+            this.dir = dir;
             this.isDepth = isDepth;
             this.depth = depth;
             this.fileformats = fileformats;
@@ -77,6 +77,24 @@ public class IndexFiles implements AutoCloseable {
             this.onlyBottomLines = onlyBottomLines;
             this.partialindexes = partialindexes;
             this.indexDir = indexDir;
+            this.create = create;
+        }
+
+
+        IndexThread(Path dir, Boolean isDepth, int depth, List<String> fileformats, Integer onlyTopLines, Integer onlyBottomLines, String indexDir,  Boolean partialindexes, Boolean create) {
+            this.dir = dir;
+            this.isDepth = isDepth;
+            this.depth = depth;
+            this.fileformats = fileformats;
+            this.onlyTopLines = onlyTopLines;
+            this.onlyBottomLines = onlyBottomLines;
+            this.partialindexes = partialindexes;
+            this.indexDir = indexDir;
+            this.create = create;
+        }
+
+        public void setIndexWriter(IndexWriter writer){
+            this.indexWriter = writer;
         }
 
         public void run(){
@@ -85,6 +103,16 @@ public class IndexFiles implements AutoCloseable {
                     Analyzer analyzer = new StandardAnalyzer();
                     Directory directory = FSDirectory.open(Paths.get(indexDir + "/" + Thread.currentThread().getName()));
                     IndexWriterConfig config = new IndexWriterConfig(analyzer);
+
+                    if (create) {
+                        // Create a new index in the directory, removing any
+                        // previously indexed documents:
+                        config.setOpenMode(OpenMode.CREATE);
+                    } else {
+                        // Add new documents to an existing index:
+                        config.setOpenMode(OpenMode.CREATE_OR_APPEND);
+                    }
+
                     IndexWriter iwriter = null;
                     try{
                         iwriter = new IndexWriter(directory, config);
@@ -143,10 +171,7 @@ public class IndexFiles implements AutoCloseable {
 
 
         String usage = "java org.apache.lucene.demo.IndexFiles"
-                + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update] [-knn_dict DICT_PATH]\n\n"
-                + "This indexes the documents in DOCS_PATH, creating a Lucene index"
-                + "in INDEX_PATH that can be searched with SearchFiles\n"
-                + "IF DICT_PATH contains a KnnVector dictionary, the index will also support KnnVector search";
+                + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update] [-numThreads] [-partialIndexes] [-deep]\n\n";
         String indexPath = "index";
         String docsPath = null;
         boolean create = true;
@@ -197,39 +222,51 @@ public class IndexFiles implements AutoCloseable {
             System.exit(1);
         }
 
+        IndexWriter writer = null;
+        Directory dir = null;
+
         Date start = new Date();
         try {
             System.out.println("Indexing to directory '" + indexPath + "'...");
 
-            Directory dir = FSDirectory.open(Paths.get(indexPath));
-            Analyzer analyzer = new StandardAnalyzer();
-            IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
+            if(!partialIndexes) {
 
-            if (create) {
-                // Create a new index in the directory, removing any
-                // previously indexed documents:
-                iwc.setOpenMode(OpenMode.CREATE);
-            } else {
-                // Add new documents to an existing index:
-                iwc.setOpenMode(OpenMode.CREATE_OR_APPEND);
+                dir = FSDirectory.open(Paths.get(indexPath));
+                Analyzer analyzer = new StandardAnalyzer();
+                IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
+
+                if (create) {
+                    // Create a new index in the directory, removing any
+                    // previously indexed documents:
+                    iwc.setOpenMode(OpenMode.CREATE);
+                } else {
+                    // Add new documents to an existing index:
+                    iwc.setOpenMode(OpenMode.CREATE_OR_APPEND);
+                }
+
+                // Optional: for better indexing performance, if you
+                // are indexing many documents, increase the RAM
+                // buffer. But if you do this, increase the max heap
+                // size to the JVM (eg add -Xmx512m or -Xmx1g):
+                //
+                // iwc.setRAMBufferSizeMB(256.0);
+
+
+                writer = new IndexWriter(dir, iwc);
+
             }
-
-            // Optional: for better indexing performance, if you
-            // are indexing many documents, increase the RAM
-            // buffer. But if you do this, increase the max heap
-            // size to the JVM (eg add -Xmx512m or -Xmx1g):
-            //
-            // iwc.setRAMBufferSizeMB(256.0);
-
-
-            IndexWriter writer = new IndexWriter(dir, iwc);
             DirectoryStream<Path> directoryStream = Files.newDirectoryStream(docDir);
 
             try{
             for (final Path docs : directoryStream){
                 if(Files.isDirectory(docs)){
-                    final Runnable worker = new IndexThread(docs, writer, isdepth, deep, formatAccepted, onlyTopLines, onlyBottomLines, indexPath, false);
-                    executor.execute(worker);
+                    if(partialIndexes){
+                        final Runnable worker = new IndexThread(docs, isdepth, deep, formatAccepted, onlyTopLines, onlyBottomLines, indexPath, partialIndexes, create);
+                        executor.execute(worker);
+                    }else {
+                        final Runnable worker = new IndexThread(docs, writer, isdepth, deep, formatAccepted, onlyTopLines, onlyBottomLines, indexPath, partialIndexes, create);
+                        executor.execute(worker);
+                    }
                 }
             }
 
@@ -250,7 +287,10 @@ public class IndexFiles implements AutoCloseable {
                 e.printStackTrace();
                 System.exit(-2);
             }
-            writer.close();
+
+            if(!partialIndexes){
+                writer.close();
+            }
 
             if(partialIndexes){
                 IndexWriterConfig iconfig = new IndexWriterConfig(new StandardAnalyzer());
@@ -264,27 +304,32 @@ public class IndexFiles implements AutoCloseable {
                 }
                 try{
                     ifusedwriter = new IndexWriter(dir3, iconfig);
+
+                    DirectoryStream<Path> stream = Files.newDirectoryStream(Paths.get(indexPath));
+                    for(final Path path : stream){
+                        if(Files.isDirectory(path)){
+                            Directory auxdir = FSDirectory.open(path);
+                            ifusedwriter.addIndexes(auxdir);
+                        }
+                    }
+
+                    ifusedwriter.commit();
+                    ifusedwriter.close();
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
-                DirectoryStream<Path> stream = Files.newDirectoryStream(Paths.get(indexPath));
-                for(final Path path : stream){
-                    if(Files.isDirectory(path)){
-                        Directory auxdir = FSDirectory.open(path);
-                        ifusedwriter.addIndexes(auxdir);
-                    }
+
+                Date end = new Date();
+                try (IndexReader reader = DirectoryReader.open(dir3)) {
+                    System.out.println("Indexed " + reader.numDocs() + " documents in " + (end.getTime() - start.getTime())
+                            + " milliseconds");
                 }
-                ifusedwriter.commit();
-                ifusedwriter.close();
             }else{
-
-            }
-
-
-            Date end = new Date();
-            try (IndexReader reader = DirectoryReader.open(dir)) {
-                System.out.println("Indexed " + reader.numDocs() + " documents in " + (end.getTime() - start.getTime())
-                        + " milliseconds");
+                Date end = new Date();
+                try (IndexReader reader = DirectoryReader.open(dir)) {
+                    System.out.println("Indexed " + reader.numDocs() + " documents in " + (end.getTime() - start.getTime())
+                            + " milliseconds");
+                }
             }
         } catch (IOException e) {
             System.out.println(" caught a " + e.getClass() + "\n with message: " + e.getMessage());
@@ -310,8 +355,9 @@ public class IndexFiles implements AutoCloseable {
      * @throws IOException If there is a low-level I/O error
      */
     static void indexDocs(final IndexWriter writer, Path path, boolean isDepth, int depth, List<String> format, int onlyTopLines, int onlyBottomLines) throws IOException {
+        System.out.println(path);
         if (Files.isDirectory(path)) {
-            if(isDepth){
+            if(isDepth){;
                 EnumSet<FileVisitOption> opts = EnumSet.of(FOLLOW_LINKS);
                 Files.walkFileTree(path, opts, depth, new SimpleFileVisitor<Path>() {
                     @Override
@@ -353,7 +399,7 @@ public class IndexFiles implements AutoCloseable {
             extension = file.toString().substring(index);
         }
 
-        if(!format.isEmpty() && format.contains(extension)) {
+        if(format.isEmpty() || format.contains(extension)) {
             try (InputStream stream = Files.newInputStream(file)) {
                 // make a new, empty document
                 Document doc = new Document();

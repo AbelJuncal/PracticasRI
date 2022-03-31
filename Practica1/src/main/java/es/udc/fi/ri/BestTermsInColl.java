@@ -9,9 +9,7 @@ import org.apache.lucene.store.FSDirectory;
 
 import java.io.IOException;
 import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Stream;
 
 public class BestTermsInColl {
@@ -39,6 +37,10 @@ public class BestTermsInColl {
             }
         }
 
+        if(field == null || top == null){
+            System.exit(1);
+        }
+
         if(rev){
             order = "df";
         }else{
@@ -54,7 +56,7 @@ public class BestTermsInColl {
             dir = FSDirectory.open(Paths.get(indexPath));
             indexReader = DirectoryReader.open(dir);
 
-            Map<String, Integer> map = new HashMap<>();
+            Map<String, Double> map = new HashMap<>();
 
             Terms terms = MultiTerms.getTerms(indexReader, field);
 
@@ -64,9 +66,23 @@ public class BestTermsInColl {
                 map.put(iterate.term().utf8ToString(), BestTermsInDoc.getValue(indexReader, iterate, order));
             }
 
-            Stream<Map.Entry<String, Integer>> sorted = map.entrySet().stream().sorted(Map.Entry.<String, Integer>comparingByValue().reversed());
+            Stream<Map.Entry<String, Double>> sorted = map.entrySet().stream().sorted(Map.Entry.<String, Double>comparingByValue().reversed());
 
-            System.out.println(Arrays.toString(sorted.toArray()));
+
+            Object[] arrays = sorted.toArray();
+            List<String> topTerms = new ArrayList<>();
+            int i = 0;
+            while(i<top && i<arrays.length){
+                topTerms.add(arrays[i].toString());
+                i++;
+            }
+            //System.out.println(topTerms.get(0));
+            String result = "";
+            result = result + "Top " + top + " terms for field " + field + " ordered by " + order + " is:\n";
+            for(String term : topTerms){
+                result = result + term + "\n";
+            }
+            System.out.println(result);
 
         } catch (IOException e) {
             e.printStackTrace();

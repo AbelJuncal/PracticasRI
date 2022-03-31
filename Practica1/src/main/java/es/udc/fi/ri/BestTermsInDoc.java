@@ -61,20 +61,40 @@ public class BestTermsInDoc {
             dir = FSDirectory.open(Paths.get(indexPath));
             indexReader = DirectoryReader.open(dir);
 
-            Map<TermsEnum, Integer> map = new HashMap<>();
+            Map<String, Double> map = new HashMap<>();
+            Map<String, List<Double>> fullTuple = new HashMap<>();
 
             Terms terms = indexReader.getTermVector(Integer.parseInt(docsID), field);
 
             TermsEnum iterate = terms.iterator();
 
+            Terms otherterms = MultiTerms.getTerms(indexReader, field);
+            TermsEnum iterateOtherTerms = otherterms.iterator();
+            int indexother = 0;
+
+
+
+
             while (iterate.next() != null) {
-                map.put(iterate, getValue(indexReader, iterate, order));
+                map.put(iterate.term().utf8ToString(), getValue(indexReader, iterate, order));
+
+                List<Double> allValues = new ArrayList<>();
+                double docFreq = iterate.docFreq();
+                double idflog10 = Math.log10(indexReader.numDocs()/(docFreq+1))+1;
+                allValues.add(docFreq);
+                allValues.add((double) iterate.totalTermFreq());
+                allValues.add(idflog10);
+                allValues.add((double) iterate.totalTermFreq()*idflog10);
+
+                fullTuple.put(iterate.term().utf8ToString(), allValues);
+
+
             }
 
             //System.out.println(map);
-            Stream<Map.Entry<TermsEnum, Integer>> sorted = map.entrySet().stream().sorted(Map.Entry.<TermsEnum, Integer>comparingByValue().reversed());
-
-            System.out.println(Arrays.toString(sorted.toArray()));
+            Stream<Map.Entry<String, Double>> sorted = map.entrySet().stream().sorted(Map.Entry.<String, Double>comparingByValue().reversed());
+            //System.out.println(Arrays.toString(sorted.toArray()));
+            System.out.println(getResults(sorted, top, field, order, fullTuple));
         } catch (IOException e1) {
             System.out.println("Graceful message: exception " + e1);
             e1.printStackTrace();
@@ -83,26 +103,31 @@ public class BestTermsInDoc {
 
     }
 
-    public static Integer getValue(IndexReader reader, TermsEnum term, String option) throws IOException {
-        int docFreq = term.docFreq();
-        int idflog10 = (int) (Math.log10(reader.numDocs()/(docFreq+1))+1);
+    public static double getValue(IndexReader reader, TermsEnum term, String option) throws IOException {
+        double docFreq = term.docFreq();
+        double idflog10 = (int) (Math.log10(reader.numDocs()/(docFreq+1))+1);
         switch (option){
             case "df":
                 return term.docFreq();
             case "tf":
-                return (int) term.totalTermFreq();
+                return term.totalTermFreq();
             case "idf":
                 return idflog10;
             case "tfxidf":
-                return (int) (term.totalTermFreq() * idflog10);
+                return term.totalTermFreq() * idflog10;
         }
         return -1;
     }
 
-    public static String getResults(Stream<Map.Entry<String, Integer>> sorted, int n, String field, String order, String term, int tf, int df, int idflog10, int tfxidfglog10){
+    public static String getResults(Stream<Map.Entry<String, Double>> sorted, int n, String field, String order,  Map<String, List<Double>> fullTuple){
+        Object[] arrays = sorted.toArray();
         String results = "";
-        results = results + ("Top " + n + "terms for field " + field + ", ordered by " + order + ":\n");
-        results = results.concat(term + "\t" + tf + "\t" + df + "\t" + idflog10 + "\t" + tfxidfglog10) + "\n";
+        results = results + ("Top " + n + " terms for field " + field + ", ordered by " + order + ":\n");
+        for(int i = 0; i<n && i< arrays.length; i++){
+            String name = arrays[i].toString().split("=")[0];
+            List<Double> values = fullTuple.get(name);
+            results = results.concat( name + "\t" + values.get(0) + "\t" + values.get(1) + "\t" + values.get(2) + "\t" + values.get(3)) + "\n";
+        }
         return results;
     }
 }
