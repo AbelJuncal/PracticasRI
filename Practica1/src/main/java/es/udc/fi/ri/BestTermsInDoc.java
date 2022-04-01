@@ -4,6 +4,7 @@ import org.apache.lucene.index.*;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.*;
@@ -11,7 +12,7 @@ import java.util.stream.Stream;
 
 public class BestTermsInDoc {
     public static void main(String[] args) throws IOException {
-        String indexPath = "index";
+        String indexPath = null;
         String docID = null;
         String field = null;
         Integer top = null;
@@ -46,18 +47,13 @@ public class BestTermsInDoc {
             }
         }
 
-        if (top == null || order == null || !options.contains(order))  {
-            //System.err.println("Usage: " + usage);
+        if (indexPath == null || docID == null || top == null || order == null || !options.contains(order))  {
+            System.err.println("Usage: " + usage);
             System.exit(1);
         }
 
         Directory dir = null;
         DirectoryReader indexReader = null;
-
-        if(docID == null){
-            //System.err.println("Usage: " + usage);
-            System.exit(1);
-        }
 
         try {
             dir = FSDirectory.open(Paths.get(indexPath));
@@ -69,13 +65,6 @@ public class BestTermsInDoc {
             Terms terms = indexReader.getTermVector(Integer.parseInt(docID), field);
 
             TermsEnum iterate = terms.iterator();
-
-            Terms otherterms = MultiTerms.getTerms(indexReader, field);
-            TermsEnum iterateOtherTerms = otherterms.iterator();
-            int indexother = 0;
-
-
-
 
             while (iterate.next() != null) {
                 map.put(iterate.term().utf8ToString(), getValue(indexReader, iterate, order));
@@ -93,11 +82,15 @@ public class BestTermsInDoc {
 
             }
 
-            //System.out.println(map);
             Stream<Map.Entry<String, Double>> sorted = map.entrySet().stream().sorted(Map.Entry.<String, Double>comparingByValue().reversed());
-            //System.out.println(Arrays.toString(sorted.toArray()));
+
             String filename =  indexReader.document(Integer.parseInt(docID)).getField("path").stringValue();
             System.out.println(getResults(sorted, top, field, order, fullTuple, filename));
+            if(outputFile != null){
+                try(FileWriter fileWriter = new FileWriter(outputFile)){
+                    fileWriter.write(getResults(sorted, top, field, order, fullTuple, filename));
+                }
+            }
         } catch (IOException e1) {
             System.out.println("Graceful message: exception " + e1);
             e1.printStackTrace();
@@ -125,14 +118,20 @@ public class BestTermsInDoc {
     public static String getResults(Stream<Map.Entry<String, Double>> sorted, int n, String field, String order,  Map<String, List<Double>> fullTuple, String docId){
         Object[] arrays = sorted.toArray();
         StringBuilder results = new StringBuilder();
-        results.append("Top ").append(n).append(" terms for field ").append(field).append(" in doc ").append(docId).append(", ordered by ").append(order).append(":\n");
+
+        results.append("Top ").append(n).append(" terms for field ").append(field).append(" in doc ").append(docId).append(", ordered by ").append(order).append(":\n\n");
+        results.append(String.format("%-23s", "Term")).append(String.format("%-11s", "df")).append(String.format("%-10s", "tf"));
+        results.append(String.format("%-9s", "idflog10")).append(String.format("%-9s", " tf x idflog10")).append("\n");
+        results.append("--------------------------------------------------------------------").append("\n");
+
         for(int i = 0; i<n && i< arrays.length; i++){
             String name = arrays[i].toString().split("=")[0];
             List<Double> values = fullTuple.get(name);
-            results.append(String.format("%-15s", name)).append("\t").append(String.format("%10.2f", values.get(0)));
-            results.append("\t").append(String.format("%20.2f", values.get(1))).append("\t");
-            results.append(String.format("%20.2f", values.get(2))).append("\t").append(String.format("%20.2f", values.get(3))).append("\n");
+            results.append(String.format("%-4s", i+1+".")).append(String.format("%-15s", name)).append("\t").append(String.format("%10.2f", values.get(0)));
+            results.append("\t").append(String.format("%10.2f", values.get(1))).append("\t");
+            results.append(String.format("%10.2f", values.get(2))).append("\t").append(String.format("%10.2f", values.get(3))).append("\n");
         }
+
         return results.toString();
     }
 }

@@ -12,7 +12,7 @@ public class WriteIndex {
 
     public static void main(String[] args){
 
-        String indexPath = "index";
+        String indexPath = null;
         String outputpath = null;
         String usage = "java es.udc.fi.ri.WriteIndex"
                 + " [-index INDEX_PATH] [-outputfile OUTPUT_FILE_PATH]\n\n";
@@ -27,8 +27,9 @@ public class WriteIndex {
                     break;
             }
         }
-        if(outputpath == null){
-            System.exit(-1);
+        if(indexPath == null || outputpath == null){
+            System.out.println("Usage " + usage);
+            System.exit(1);
         }
 
         try (DirectoryReader reader = DirectoryReader.open(FSDirectory.open((Paths.get(indexPath)))); FileWriter writer = new FileWriter(outputpath)) {

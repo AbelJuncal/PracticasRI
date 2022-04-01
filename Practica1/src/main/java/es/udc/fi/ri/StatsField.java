@@ -14,7 +14,7 @@ public class StatsField {
 
     public static void main(String[] args){
         boolean optionField = false;
-        String indexPath = "index";
+        String indexPath = null;
         String field = null;
         String usage = "java es.udc.fi.ri.StatsField"
                 + " [-index INDEX_PATH] [-field]\n\n";
@@ -29,6 +29,11 @@ public class StatsField {
                     field = args[++i];
                     break;
             }
+        }
+
+        if(indexPath == null){
+            System.out.println("Usage " + usage);
+            System.exit(1);
         }
 
         IndexSearcher searcher;

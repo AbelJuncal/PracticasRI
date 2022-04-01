@@ -261,4 +261,26 @@ public class DataSet {
     public Double getMax(String attrName){
         return maximums.get(attrName);
     }
+
+    public String toString() {
+        String salida = "";
+
+        for (String name : attrNames) {
+            salida = salida.concat(name);
+            salida = salida.concat(",\t");
+        }
+
+        salida = salida.concat("ClusterId");
+        salida = salida.concat("\n");
+
+        for (var record : records) {
+            for (String attrName : attrNames) {
+                salida = salida.concat(String.valueOf(record.getRecord().get(attrName)));
+                salida = salida.concat(",\t\t\t");
+            }
+            salida = salida.concat(String.valueOf(record.clusterNo));
+            salida = salida.concat("\n");
+        }
+        return salida;
+    }
 }

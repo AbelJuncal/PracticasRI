@@ -1,22 +1,5 @@
 package es.udc.fi.ri;
 
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 import java.io.*;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
@@ -93,15 +76,11 @@ public class IndexFiles implements AutoCloseable {
             this.create = create;
         }
 
-        public void setIndexWriter(IndexWriter writer){
-            this.indexWriter = writer;
-        }
-
         public void run(){
             try {
                 if(partialindexes){
                     Analyzer analyzer = new StandardAnalyzer();
-                    Directory directory = FSDirectory.open(Paths.get(indexDir + "/" + Thread.currentThread().getName()));
+                    Directory directory = FSDirectory.open(Paths.get(indexDir + "/" + dir.getFileName()));
                     IndexWriterConfig config = new IndexWriterConfig(analyzer);
 
                     if (create) {
@@ -171,12 +150,16 @@ public class IndexFiles implements AutoCloseable {
 
 
         String usage = "java org.apache.lucene.demo.IndexFiles"
-                + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update] [-numThreads] [-partialIndexes] [-deep]\n\n";
-        String indexPath = "index";
+                + " [-index INDEX_PATH] [-docs DOCS_PATH] [-update] [-knn_dict DICT_PATH]\n\n"
+                + "This indexes the documents in DOCS_PATH, creating a Lucene index"
+                + "in INDEX_PATH that can be searched with SearchFiles\n"
+                + "IF DICT_PATH contains a KnnVector dictionary, the index will also support KnnVector search";
+        String indexPath = null;
         String docsPath = null;
         boolean create = true;
         boolean partialIndexes = false;
         int numCores = Runtime.getRuntime().availableProcessors();
+
         boolean isdepth = false;
         int deep = 0;
         for (int i = 0; i < args.length; i++) {
@@ -210,7 +193,7 @@ public class IndexFiles implements AutoCloseable {
 
         final ExecutorService executor = Executors.newFixedThreadPool(numCores);
 
-        if (docsPath == null) {
+        if (indexPath == null || docsPath == null) {
             System.err.println("Usage: " + usage);
             System.exit(1);
         }
@@ -224,6 +207,7 @@ public class IndexFiles implements AutoCloseable {
 
         IndexWriter writer = null;
         Directory dir = null;
+        deleteDirectoryRecursion(Paths.get(indexPath));
 
         Date start = new Date();
         try {
@@ -310,6 +294,7 @@ public class IndexFiles implements AutoCloseable {
                         if(Files.isDirectory(path)){
                             Directory auxdir = FSDirectory.open(path);
                             ifusedwriter.addIndexes(auxdir);
+                            deleteDirectoryRecursion(path);
                         }
                     }
 
@@ -355,7 +340,6 @@ public class IndexFiles implements AutoCloseable {
      * @throws IOException If there is a low-level I/O error
      */
     static void indexDocs(final IndexWriter writer, Path path, boolean isDepth, int depth, List<String> format, int onlyTopLines, int onlyBottomLines) throws IOException {
-        System.out.println(path);
         if (Files.isDirectory(path)) {
             if(isDepth){;
                 EnumSet<FileVisitOption> opts = EnumSet.of(FOLLOW_LINKS);
@@ -404,20 +388,8 @@ public class IndexFiles implements AutoCloseable {
                 // make a new, empty document
                 Document doc = new Document();
 
-                // Add the path of the file as a field named "path". Use a
-                // field that is indexed (i.e. searchable), but don't tokenize
-                // the field into separate words and don't index term frequency
-                // or positional information:
                 Field pathField = new StringField("path", file.toString(), Field.Store.YES);
                 doc.add(pathField);
-
-                // Add the last modified date of the file a field named "modified".
-                // Use a LongPoint that is indexed (i.e. efficiently filterable with
-                // PointRangeQuery). This indexes to milli-second resolution, which
-                // is often too fine. You could instead create a number based on
-                // year/month/day/hour/minutes/seconds, down the resolution you require.
-                // For example the long value 2011021714 would mean
-                // February 17, 2011, 2-3 PM.
 
                 String formato = "yyyy-MM-dd HH:mm:ss";
                 SimpleDateFormat formateo = new SimpleDateFormat(formato);
@@ -441,28 +413,6 @@ public class IndexFiles implements AutoCloseable {
                 doc.add(new Field("lastAccessTimeLucene", DateTools.dateToString(lastAccessTimeLucene, DateTools.Resolution.MILLISECOND), typeb));
                 doc.add(new Field("lastModifiedTimeLucene", DateTools.dateToString(lastModifiedTimeLucene, DateTools.Resolution.MILLISECOND), typeb));
 
-                //doc.add(new StringField("lastModifiedTime", formateo.format(new Date(attrs.lastModifiedTime().toMillis())), Field.Store.YES));
-
-                //doc.add(new StringField("creationTime", String.valueOf(attrs.creationTime().toMillis()), Field.Store.YES));
-
-                //doc.add(new StringField("lastAccessTime", String.valueOf(attrs.lastAccessTime().toMillis()), Field.Store.YES));
-
-                //doc.add(new StringField("sizeKB", String.valueOf((Files.size(file) / 1024)), Field.Store.YES));
-
-                //Lucene times
-                //Date creationTimeLucene = new Date(attrs.creationTime().toMillis());
-                //doc.add(new TextField("creationTimeLucene", DateTools.dateToString(creationTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
-
-                //Date lastAccessTimeLucene = new Date(attrs.lastAccessTime().toMillis());
-                //doc.add(new TextField("lastAccessTimeLucene", DateTools.dateToString(lastAccessTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
-
-                //Date lastModifiedTimeLucene = new Date(attrs.lastModifiedTime().toMillis());
-                //doc.add(new TextField("lastModifiedTimeLucene", DateTools.dateToString(lastModifiedTimeLucene, DateTools.Resolution.MILLISECOND), Field.Store.YES));
-
-                // Add the contents of the file to a field named "contents". Specify a Reader,
-                // so that the text of the file is tokenized and indexed, but not stored.
-                // Note that FileReader expects the file to be in UTF-8 encoding.
-                // If that's not the case searching for special characters will fail.
                 String contents;
 
                 if(onlyTopLines == -1 && onlyBottomLines == -1){
@@ -490,24 +440,15 @@ public class IndexFiles implements AutoCloseable {
                         }
                     }
                 }
-                //String contents = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8)).lines().collect(Collectors.joining());
 
-                //doc.add(new TextField("contents", contents, Field.Store.NO));
                 doc.add(new Field("contents", contents, typec));
 
-                //doc.add(new TextField("contentsStored", contents, Field.Store.YES));
                 doc.add(new Field("contentsStored", contents, typea));
 
-                //Save the hostname
-                //doc.add(new StringField("hostname", InetAddress.getLocalHost().getHostName(), Field.Store.YES));
                 doc.add(new Field("hostname", InetAddress.getLocalHost().getHostName(), typeb));
 
-                //Save the thread
-                //doc.add(new StringField("thread", Thread.currentThread().getName(), Field.Store.YES));
                 doc.add(new Field( "thread", Thread.currentThread().getName(), typeb));
 
-                //Save the type
-                //doc.add(new StringField("type", fileType(attrs), Field.Store.YES));
                 doc.add(new Field("type",fileType(attrs), typeb));
 
                 if (writer.getConfig().getOpenMode() == OpenMode.CREATE) {
@@ -565,5 +506,16 @@ public class IndexFiles implements AutoCloseable {
         typec.freeze();
 
 
+    }
+
+    public static void deleteDirectoryRecursion(Path path) throws IOException {
+        if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+            try (DirectoryStream<Path> entries = Files.newDirectoryStream(path)) {
+                for (Path entry : entries) {
+                    deleteDirectoryRecursion(entry);
+                }
+            }
+        }
+        Files.delete(path);
     }
 }

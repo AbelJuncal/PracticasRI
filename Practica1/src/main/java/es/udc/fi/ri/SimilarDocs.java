@@ -52,13 +52,14 @@ public class SimilarDocs {
         }
 
         if(indexPath == null | docsID == null | field == null | top == null | !options.contains(rep)){
-            System.out.print("Bad arguments");
+            System.out.print("Usage" + usage);
             System.exit(1);
         }
 
         Directory dir = null;
         DirectoryReader indexReader = null;
         Set<String> terms = new HashSet<>();
+        Set<String> docTerms = new HashSet<>();
         Map<String, Double> map = new HashMap<>();
 
         StringBuilder result = new StringBuilder();
@@ -66,9 +67,10 @@ public class SimilarDocs {
         try{
             dir = FSDirectory.open(Paths.get(indexPath));
             indexReader = DirectoryReader.open(dir);
+            String docsIDfilename = indexReader.document(Integer.parseInt(docsID)).getField("path").stringValue();
 
             result.append("The top ").append(top).append(" similar docs to ");
-            result.append(indexReader.document(Integer.parseInt(docsID)).getField("path").stringValue());
+            result.append(docsIDfilename);
             result.append(" ordered by ").append(rep).append(" representation is: \n");
 
             Terms documentTerms = indexReader.getTermVector(Integer.parseInt(docsID), field);
@@ -81,47 +83,74 @@ public class SimilarDocs {
 
             while ((doctext = documentTermsEnum.next())!=null){
                 String term = doctext.utf8ToString();
-                double freq = getValue(indexReader, documentTermsEnum, rep, null, null);
+                double freq = 0;
+                if(rep.equals("bin")){
+                        freq = 1;
+                }else {
+                    freq = getValue(indexReader, documentTermsEnum, rep);
+                }
                 documentFrequencies.put(term, freq);
+                docTerms.add(term);
                 terms.add(term);
             }
 
             for (int i = 0; i < indexReader.numDocs(); i++) {
                 Document doc = indexReader.document(i);
-                Terms auxterm = indexReader.getTermVector(i, field);
-                TermsEnum termsEnum = null;
-                termsEnum = auxterm.iterator();
-                Map<String, Double> frequencies = new HashMap<>();
-                BytesRef text = null;
-                Set<String> auxterms = new HashSet<>();
+                String docFilename = doc.getField("path").stringValue();
+                if(!docsIDfilename.equals(docFilename)) {
+                    Terms auxterm = indexReader.getTermVector(i, field);
+                    TermsEnum termsEnum = null;
+                    termsEnum = auxterm.iterator();
+                    BytesRef text = null;
+
+                    while ((text = termsEnum.next()) != null) {
+                        String term = text.utf8ToString();
+                        terms.add(term);
+                    }
+                }
+            }
+
+            for (int i = 0; i < indexReader.numDocs(); i++) {
+                Document doc = indexReader.document(i);
+                String docFilename = doc.getField("path").stringValue();
+
+                if(!docsIDfilename.equals(docFilename)) {
+                    Terms auxterm = indexReader.getTermVector(i, field);
+                    TermsEnum termsEnum = null;
+                    termsEnum = auxterm.iterator();
+                    Map<String, Double> frequencies = new HashMap<>();
+                    BytesRef text = null;
+
+                    while ((text = termsEnum.next()) != null) {
+                        String term = text.utf8ToString();
+                        double freq = 0;
+                        if (rep.equals("bin")) {
+                            if (docTerms.contains(term)) {
+                                freq = 1;
+                            }
+                        } else {
+                            freq = getValue(indexReader, termsEnum, rep);
+                        }
+                        frequencies.put(term, freq);
+                    }
+                    RealVector vaux = toRealVector(frequencies, terms);
+                    docvaux = toRealVector(documentFrequencies, terms);
 
 
-                while ((text = termsEnum.next())!=null){
-                    String term = text.utf8ToString();
-                    //double freq = termsEnum.totalTermFreq();
-                    double freq = getValue(indexReader, termsEnum, rep, term, terms);
-                    frequencies.put(term, freq);
-                    auxterms.add(term);
+                    docsVector.add(vaux);
+
+                    double c = getCosineSimilarity(docvaux, vaux);
+                    map.put(doc.getField("path").stringValue(), c);
                 }
 
-                auxterms.addAll(terms);
-
-                RealVector vaux = toRealVector(frequencies, auxterms);
-                docvaux = toRealVector(documentFrequencies, auxterms);
-
-                docsVector.add(vaux);
-
-                double c = getCosineSimilarity(docvaux,vaux);
-                map.put(doc.getField("path").stringValue(), c);
-
-                //System.out.println(indexReader.document(Integer.parseInt(docsID)).getField("path").stringValue() + "\t" + doc.getField("path").stringValue() + "\t" + c);
             }
+
             Stream<Map.Entry<String, Double>> sorted = map.entrySet().stream().sorted(Map.Entry.<String, Double>comparingByValue().reversed());
             Object[] arrays = sorted.toArray();
             for (int i = 0; i<top && i<arrays.length; i++){
                 String name = arrays[i].toString().split("=")[0];
                 Double value = Double.parseDouble(arrays[i].toString().split("=")[1]);
-                result.append(String.format("%-40s", name)).append("\t").append(String.format("%20.2f", value)).append("\n");
+                result.append(String.format("%-4s", i+1+".")).append(String.format("%-40s", name)).append("\t").append(String.format("%20.2f", value)).append("\n");
             }
             System.out.println(result);
 
@@ -145,26 +174,15 @@ public class SimilarDocs {
         return (RealVector) vector.mapDivide(vector.getL1Norm());
     }
 
-    public static double getValue(IndexReader reader, TermsEnum term, String option, String value, Set<String> terms) throws IOException {
+    public static double getValue(IndexReader reader, TermsEnum term, String option) throws IOException {
         double docFreq = term.docFreq();
         double idflog10 = (int) (Math.log10(reader.numDocs()/(docFreq+1))+1);
-        double bin = 0;
-
-        if(terms != null && value != null) {
-            if (terms.contains(value)) {
-                bin = 1;
-            } else {
-                bin = 0;
-            }
-        }
 
         switch (option){
             case "tf":
                 return term.totalTermFreq();
             case "tfxidf":
                 return term.totalTermFreq() * idflog10;
-            case "bin":
-                return bin;
         }
         return -1;
     }

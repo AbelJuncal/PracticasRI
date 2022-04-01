@@ -14,7 +14,7 @@ import java.util.stream.Stream;
 
 public class BestTermsInColl {
     public static void main(String[] args){
-        String indexPath = "index";
+        String indexPath = null;
         String field = null;
         Integer top = null;
         String order = null;
@@ -39,7 +39,7 @@ public class BestTermsInColl {
             }
         }
 
-        if(field == null || top == null){
+        if(indexPath == null || field == null || top == null){
             System.exit(1);
         }
 
@@ -70,19 +70,14 @@ public class BestTermsInColl {
 
             Stream<Map.Entry<String, Double>> sorted = map.entrySet().stream().sorted(Map.Entry.<String, Double>comparingByValue().reversed());
 
-
             Object[] arrays = sorted.toArray();
-            List<String> topTerms = new ArrayList<>();
-            int i = 0;
-            while(i<top && i<arrays.length){
-                topTerms.add(arrays[i].toString());
-                i++;
-            }
-            //System.out.println(topTerms.get(0));
-            String result = "";
-            result = result + "Top " + top + " terms for field " + field + " ordered by " + order + " is:\n";
-            for(String term : topTerms){
-                result = result + term + "\n";
+
+            StringBuilder result = new StringBuilder();
+            result.append("Top ").append(top).append(" terms for field ").append(field).append(" ordered by ").append(order).append(" are:\n");
+            for(int i = 0; i < top && i< arrays.length; i++){
+                String name = arrays[i].toString().split("=")[0];
+                String value = arrays[i].toString().split("=")[1];
+                result.append(String.format("%-4s", i+1+".")).append(String.format("%-25s",name)).append(String.format("%-20s", value)).append("\n");
             }
             System.out.println(result);
 
