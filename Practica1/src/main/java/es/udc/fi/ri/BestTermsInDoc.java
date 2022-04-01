@@ -86,9 +86,13 @@ public class BestTermsInDoc {
 
             String filename =  indexReader.document(Integer.parseInt(docID)).getField("path").stringValue();
             System.out.println(getResults(sorted, top, field, order, fullTuple, filename));
+            sorted.close();
             if(outputFile != null){
                 try(FileWriter fileWriter = new FileWriter(outputFile)){
+                    sorted = map.entrySet().stream().sorted(Map.Entry.<String, Double>comparingByValue().reversed());
                     fileWriter.write(getResults(sorted, top, field, order, fullTuple, filename));
+                }finally {
+                    sorted.close();
                 }
             }
         } catch (IOException e1) {
