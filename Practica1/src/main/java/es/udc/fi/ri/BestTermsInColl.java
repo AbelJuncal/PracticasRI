@@ -17,7 +17,7 @@ public class BestTermsInColl {
         String indexPath = null;
         String field = null;
         Integer top = null;
-        String order = null;
+        String order;
         boolean rev = false;
         String usage = "java es.udc.fi.ri.SimilarDocs"
                 + " [-index INDEX_PATH] [-field] [-top] [-rev df, idf]\n\n";
@@ -40,6 +40,7 @@ public class BestTermsInColl {
         }
 
         if(indexPath == null || field == null || top == null){
+            System.out.println("Usage " + usage);
             System.exit(1);
         }
 
@@ -49,8 +50,8 @@ public class BestTermsInColl {
             order = "idf";
         }
 
-        Directory dir = null;
-        DirectoryReader indexReader = null;
+        Directory dir;
+        DirectoryReader indexReader;
 
 
 

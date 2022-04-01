@@ -33,7 +33,7 @@ import static java.nio.file.FileVisitOption.FOLLOW_LINKS;
  */
 public class IndexFiles implements AutoCloseable {
     @Override
-    public void close() throws Exception {
+    public void close() {
 
     }
 
@@ -278,7 +278,7 @@ public class IndexFiles implements AutoCloseable {
 
             if(partialIndexes){
                 IndexWriterConfig iconfig = new IndexWriterConfig(new StandardAnalyzer());
-                IndexWriter ifusedwriter = null;
+                IndexWriter ifusedwriter;
 
                 MMapDirectory dir3 = null;
                 try{

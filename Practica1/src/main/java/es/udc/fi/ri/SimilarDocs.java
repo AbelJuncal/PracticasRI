@@ -20,7 +20,7 @@ public class SimilarDocs {
     public static RealVector targetDocVector;
     public static List<RealVector> docsVector = new ArrayList<>();
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) {
         String indexPath = null;
         String docsID = null;
         String field = null;
@@ -56,8 +56,8 @@ public class SimilarDocs {
             System.exit(1);
         }
 
-        Directory dir = null;
-        DirectoryReader indexReader = null;
+        Directory dir;
+        DirectoryReader indexReader;
         Set<String> terms = new HashSet<>();
         Set<String> docTerms = new HashSet<>();
         Map<String, Double> map = new HashMap<>();
@@ -74,16 +74,16 @@ public class SimilarDocs {
             result.append(" ordered by ").append(rep).append(" representation is: \n");
 
             Terms documentTerms = indexReader.getTermVector(Integer.parseInt(docsID), field);
-            TermsEnum documentTermsEnum = null;
+            TermsEnum documentTermsEnum;
             documentTermsEnum = documentTerms.iterator();
             Map<String, Double> documentFrequencies = new HashMap<>();
-            BytesRef doctext = null;
+            BytesRef doctext;
             RealVector docvaux = toRealVector(documentFrequencies, terms);
             targetDocVector = docvaux;
 
             while ((doctext = documentTermsEnum.next())!=null){
                 String term = doctext.utf8ToString();
-                double freq = 0;
+                double freq;
                 if(rep.equals("bin")){
                         freq = 1;
                 }else {
@@ -99,9 +99,9 @@ public class SimilarDocs {
                 String docFilename = doc.getField("path").stringValue();
                 if(!docsIDfilename.equals(docFilename)) {
                     Terms auxterm = indexReader.getTermVector(i, field);
-                    TermsEnum termsEnum = null;
+                    TermsEnum termsEnum;
                     termsEnum = auxterm.iterator();
-                    BytesRef text = null;
+                    BytesRef text;
 
                     while ((text = termsEnum.next()) != null) {
                         String term = text.utf8ToString();
@@ -116,10 +116,10 @@ public class SimilarDocs {
 
                 if(!docsIDfilename.equals(docFilename)) {
                     Terms auxterm = indexReader.getTermVector(i, field);
-                    TermsEnum termsEnum = null;
+                    TermsEnum termsEnum;
                     termsEnum = auxterm.iterator();
                     Map<String, Double> frequencies = new HashMap<>();
-                    BytesRef text = null;
+                    BytesRef text;
 
                     while ((text = termsEnum.next()) != null) {
                         String term = text.utf8ToString();
@@ -148,8 +148,9 @@ public class SimilarDocs {
             Stream<Map.Entry<String, Double>> sorted = map.entrySet().stream().sorted(Map.Entry.<String, Double>comparingByValue().reversed());
             Object[] arrays = sorted.toArray();
             for (int i = 0; i<top && i<arrays.length; i++){
-                String name = arrays[i].toString().split("=")[0];
-                Double value = Double.parseDouble(arrays[i].toString().split("=")[1]);
+                String[] split = arrays[i].toString().split("=");
+                String name = split[0];
+                Double value = Double.parseDouble(split[1]);
                 result.append(String.format("%-4s", i+1+".")).append(String.format("%-40s", name)).append("\t").append(String.format("%20.2f", value)).append("\n");
             }
             System.out.println(result);
@@ -171,7 +172,7 @@ public class SimilarDocs {
             vector.setEntry(x++, value);
         }
 
-        return (RealVector) vector.mapDivide(vector.getL1Norm());
+        return vector.mapDivide(vector.getL1Norm());
     }
 
     public static double getValue(IndexReader reader, TermsEnum term, String option) throws IOException {

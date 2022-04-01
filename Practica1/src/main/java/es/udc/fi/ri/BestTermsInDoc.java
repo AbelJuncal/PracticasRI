@@ -11,7 +11,7 @@ import java.util.*;
 import java.util.stream.Stream;
 
 public class BestTermsInDoc {
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) {
         String indexPath = null;
         String docID = null;
         String field = null;
@@ -52,8 +52,8 @@ public class BestTermsInDoc {
             System.exit(1);
         }
 
-        Directory dir = null;
-        DirectoryReader indexReader = null;
+        Directory dir;
+        DirectoryReader indexReader;
 
         try {
             dir = FSDirectory.open(Paths.get(indexPath));
